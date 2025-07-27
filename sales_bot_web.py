@@ -140,11 +140,11 @@ if st.session_state.leads:
     lead_df = pd.DataFrame(st.session_state.leads)
     st.data_frame(lead_df)
 
-# Generate Pitch
-st.subheader("Generate Pitch")
-selected_lead_index = st.selectbox("Select Lead", options=range(len(st.session_state.leads)), format_func=lambda i: f"{st.session_state.leads[i].get('name', 'Unknown')} - {st.session_state.leads[i]['phone']}")
+# Generate Pitch for Selected Lead
+st.subheader("Generate Pitch for Selected Lead")
+selected_lead_index = st.selectbox("Select Lead", options=range(len(st.session_state.leads)), format_func=lambda i: f"{st.session_state.leads[i].get('name', 'Unknown')} - {st.session_state.leads[i]['phone']}" if st.session_state.leads else "No leads loaded")
 if st.button("Generate Pitch for Selected"):
-    if 'leads' in st.session_state and st.session_state.leads:
+    if st.session_state.leads:
         lead = st.session_state.leads[selected_lead_index]
         name = lead.get('name', 'the customer')
         info = lead.get('info', 'no specific information available')
@@ -173,14 +173,57 @@ if st.button("Generate Pitch for Selected"):
             resp.raise_for_status()
             pitch = resp.json()['choices'][0]['message']['content']
             lead['pitch'] = pitch
-            st.text_area("Generated Pitch (Editable)", value=pitch, height=200, key="pitch_display")
+            st.text_area("Generated Pitch (Editable)", value=pitch, height=200, key="pitch_display_selected")
             st.success("Pitch generated.")
         except Exception as e:
             st.error(f"Failed to generate pitch: {str(e)}")
 
-# Initiate Call
+# Generate Pitches for All Leads
+if st.button("Generate Pitches for All"):
+    if st.session_state.leads:
+        def batch_gen():
+            for i, lead in enumerate(st.session_state.leads):
+                name = lead.get('name', 'the customer')
+                info = lead.get('info', 'no specific information available')
+                product = st.session_state.product_description or "our amazing product/service"
+                
+                custom_prompt = st.session_state.custom_prompt
+                if custom_prompt:
+                    try:
+                        user_content = custom_prompt.format(name=name, info=info, product=product)
+                    except KeyError:
+                        st.error("Custom prompt should use {name}, {info}, {product} if needed.")
+                        return
+                else:
+                    user_content = f"Come up with the very best thing to sell to {name} based on {info}. The product is {product}. Generate a compelling pitch script for a phone call."
+                
+                url = "https://api.openai.com/v1/chat/completions"
+                headers = {"Authorization": f"Bearer {st.session_state.openai_api_key}", "Content-Type": "application/json"}
+                body = {
+                    "model": "gpt-4o",
+                    "messages": [
+                        {"role": "system", "content": "You are a creative sales pitch generator."},
+                        {"role": "user", "content": user_content}
+                    ]
+                }
+                try:
+                    resp = requests.post(url, headers=headers, json=body)
+                    resp.raise_for_status()
+                    pitch = resp.json()['choices'][0]['message']['content']
+                    lead['pitch'] = pitch
+                    st.session_state.status = f"Generated pitch for lead {i+1}/{len(st.session_state.leads)}"
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to generate pitch for lead {i+1}: {str(e)}")
+                    return
+            st.session_state.status = "Batch pitch generation complete."
+            st.rerun()
+        
+        threading.Thread(target=batch_gen).start()
+
+# Initiate Call for Selected
 if st.button("Confirm and Call Selected"):
-    if 'leads' in st.session_state and st.session_state.leads:
+    if st.session_state.leads:
         lead = st.session_state.leads[selected_lead_index]
         if 'pitch' not in lead:
             st.error("Generate pitch first.")
@@ -209,6 +252,60 @@ if st.button("Confirm and Call Selected"):
                 })
             except Exception as e:
                 st.error(f"Failed to initiate call: {str(e)}")
+
+# Batch Call All
+if st.button("Batch Call All"):
+    if st.session_state.leads:
+        def batch_call():
+            for i, lead in enumerate(st.session_state.leads):
+                if 'pitch' in lead:
+                    try:
+                        url = "https://api.retellai.com/v2/create-phone-call"
+                        headers = {"Authorization": f"Bearer {st.session_state.retell_api_key}", "Content-Type": "application/json"}
+                        body = {
+                            "from_number": st.session_state.from_number,
+                            "to_number": lead['phone'],
+                            "retell_llm_dynamic_variables": {
+                                "name": lead.get('name', ''),
+                                "pitch": lead['pitch']
+                            }
+                        }
+                        resp = requests.post(url, headers=headers, json=body)
+                        resp.raise_for_status()
+                        call_id = resp.json().get('call_id', 'Unknown')
+                        st.session_state.call_logs.append({
+                            'phone': lead['phone'],
+                            'name': lead.get('name', 'Unknown'),
+                            'time': time.strftime("%Y-%m-%d %H:%M:%S"),
+                            'status': 'Initiated',
+                            'call_id': call_id
+                        })
+                        st.session_state.status = f"Initiated call {i+1}/{len(st.session_state.leads)}"
+                        st.rerun()
+                        time.sleep(st.session_state.batch_delay)
+                    except Exception as e:
+                        st.error(f"Failed to initiate call for lead {i+1}: {str(e)}")
+                        st.session_state.call_logs.append({
+                            'phone': lead['phone'],
+                            'name': lead.get('name', 'Unknown'),
+                            'time': time.strftime("%Y-%m-%d %H:%M:%S"),
+                            'status': 'Failed',
+                            'message': str(e)
+                        })
+                        st.rerun()
+                else:
+                    st.session_state.call_logs.append({
+                        'phone': lead['phone'],
+                        'name': lead.get('name', 'Unknown'),
+                        'time': time.strftime("%Y-%m-%d %H:%M:%S"),
+                        'status': 'Skipped',
+                        'message': 'No pitch'
+                    })
+                    st.rerun()
+            st.session_state.status = "Batch calls complete."
+            st.rerun()
+        
+        threading.Thread(target=batch_call).start()
 
 # Display Call Logs
 if st.session_state.call_logs:
@@ -246,3 +343,4 @@ def ai_reformat_phone(phone):
         return formatted
     except Exception as e:
         st.error(f"AI format error: {str(e)}")
+        return None
