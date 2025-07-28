@@ -40,11 +40,6 @@ if 'retell_api_key' not in st.session_state:
     st.session_state.retell_api_key = os.getenv("RETELL_API_KEY", "")
 if 'openai_api_key' not in st.session_state:
     st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-<<<<<<< HEAD
-=======
-if 'scrapingbee_api_key' not in st.session_state:
-    st.session_state.scrapingbee_api_key = os.getenv("SCRAPINGBEE_API_KEY", "")
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 if 'from_number' not in st.session_state:
     st.session_state.from_number = os.getenv("FROM_NUMBER", "")
 if 'llm_id' not in st.session_state:
@@ -75,29 +70,17 @@ if 'scrape_url' not in st.session_state:
     st.session_state.scrape_url = ""
 if 'ai_output' not in st.session_state:
     st.session_state.ai_output = {}
-<<<<<<< HEAD
-=======
-if 'call_ids' not in st.session_state:
-    st.session_state.call_ids = {}
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 if 'voice_id' not in st.session_state:
     st.session_state.voice_id = "openai-Alloy"
 if 'scrape_urls' not in st.session_state:
     st.session_state.scrape_urls = []
-<<<<<<< HEAD
 if 'background_test_gen_process' not in st.session_state:
     st.session_state.background_test_gen_process = None
-=======
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 
 # Input fields
 st.subheader("API Keys and Config")
 st.session_state.retell_api_key = st.text_input("Retell AI API Key", value=st.session_state.retell_api_key)
 st.session_state.openai_api_key = st.text_input("OpenAI API Key", value=st.session_state.openai_api_key, type="password")
-<<<<<<< HEAD
-=======
-st.session_state.scrapingbee_api_key = st.text_input("ScrapingBee API Key (for improved scraping)", value=st.session_state.scrapingbee_api_key, type="password")
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 st.session_state.from_number = st.text_input("From Number (E.164 format)", value=st.session_state.from_number)
 
 # Voice selection
@@ -120,21 +103,13 @@ st.session_state.custom_prompt = st.text_area("Custom Pitch Generation Prompt (o
 # Batch delay
 st.session_state.batch_delay = st.number_input("Batch Call Delay (seconds)", value=st.session_state.batch_delay, min_value=1)
 
-<<<<<<< HEAD
 # AI Orchestrator (enhanced for more URLs with pagination)
-=======
-# AI Orchestrator
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 st.subheader("AI Orchestrator")
 if st.button("Run AI Orchestrator"):
     if st.session_state.openai_api_key and st.session_state.niche and st.session_state.product_description:
         try:
             client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-<<<<<<< HEAD
             prompt = f"You are a sales strategist. Analyze niche: {st.session_state.niche}, product: {st.session_state.product_description}. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of 50+ varied URLs from ethical free directories with rotated cities, keywords, and pagination like &start=10, &start=20, etc for max results']}}"
-=======
-            prompt = f"You are a sales strategist. Analyze niche: {st.session_state.niche}, product: {st.session_state.product_description}. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of 20+ varied URLs with rotated cities, keywords, pages']}}"
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": prompt}],
@@ -198,11 +173,7 @@ if st.button("Setup Agent"):
 
 st.text(st.session_state.status)
 
-<<<<<<< HEAD
 # Scrape Leads (enhanced with user-agent rotation and better patterns for max results)
-=======
-# Scrape Leads (enhanced with better element targeting for sites like Yelp)
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 def scrape_leads(url, niche):
     try:
         user_agents = [
@@ -220,7 +191,6 @@ def scrape_leads(url, niche):
         emails = []
         companies = []
         
-<<<<<<< HEAD
         # Expanded targeted extraction
         name_elements = soup.find_all(class_=re.compile(r'(business|name|title|listing|item)', re.I))
         names = [el.get_text(strip=True) for el in name_elements if el.get_text(strip=True)]
@@ -247,43 +217,12 @@ def scrape_leads(url, niche):
             phone_matches = re.findall(r'(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', text)
             if phone_matches:
                 phones.extend(phone_matches)
-=======
-        # Targeted extraction for common business listing classes (e.g., Yelp uses 'businessName', 'phone', etc.)
-        name_elements = soup.find_all(class_=re.compile(r'(business|name|title)', re.I))
-        names = [el.get_text(strip=True) for el in name_elements if el.get_text(strip=True)]
-        
-        phone_elements = soup.find_all(class_=re.compile(r'(phone|contact|tel)', re.I))
-        for el in phone_elements:
-            text = el.get_text(strip=True) or el.get('href', '')
-            phone_matches = re.findall(r'(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', text)
-            if phone_matches:
-                phones.extend(phone_matches)
-        
-        email_elements = soup.find_all(class_=re.compile(r'(email|contact|mail)', re.I))
-        for el in email_elements:
-            text = el.get_text(strip=True) or el.get('href', '')
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
             email_matches = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text)
             if email_matches:
                 emails.extend(email_matches)
         
-<<<<<<< HEAD
         new_leads = []
         phones = list(set(phones))  # Dedupe
-=======
-        company_elements = soup.find_all(class_=re.compile(r'(company|business|org)', re.I))
-        companies = [el.get_text(strip=True) for el in company_elements if el.get_text(strip=True)]
-        
-        # Fallback to full text scan if targeted yields nothing
-        if not phones:
-            for text in soup.find_all(text=True):
-                phone_matches = re.findall(r'(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', text)
-                if phone_matches:
-                    phones.extend(phone_matches)
-        
-        new_leads = []
-        phones = list(set(phones))  # Dedupe phones
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
         for i, phone in enumerate(phones):
             fixed = ai_reformat_phone(phone)
             if fixed:
@@ -292,7 +231,6 @@ def scrape_leads(url, niche):
                 company = companies[i % len(companies)] if companies else ""
                 new_leads.append({"phone": fixed, "name": name, "email": email, "company": company, "info": niche, "score": random.randint(1, 10)})
         
-<<<<<<< HEAD
         # Dedupe against existing
         existing_phones = {lead['phone'] for lead in st.session_state.leads}
         new_leads = [lead for lead in new_leads if lead['phone'] not in existing_phones]
@@ -301,15 +239,6 @@ def scrape_leads(url, niche):
         return new_leads
     except Exception as e:
         st.error(f"Scraping failed for {url}: {str(e)}. Site may block requests.")
-=======
-        # Dedupe new leads against existing
-        existing_phones = {lead['phone'] for lead in st.session_state.leads}
-        new_leads = [lead for lead in new_leads if lead['phone'] not in existing_phones]
-        
-        return new_leads
-    except Exception as e:
-        st.error(f"Scraping failed for {url}: {str(e)}. Ensure ScrapingBee key is valid (if used) and site allows scraping.")
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
         return []
 
 st.subheader("Scrape Leads")
@@ -447,11 +376,7 @@ if st.button("Export Leads to CSV"):
     else:
         st.error("No leads to export.")
 
-<<<<<<< HEAD
 # Lead Qualification & Enrichment
-=======
-# Lead Qualification & Enrichment (removed Hunter.io)
->>>>>>> 9b08b73f4354fb6c6a0b0d882cd2b772b4238f52
 st.subheader("Qualify & Enrich Leads")
 if st.button("Qualify All Leads"):
     if st.session_state.openai_api_key:
@@ -581,7 +506,7 @@ if st.button("Batch Call All"):
                         st.session_state.call_logs.append({
                             'phone': lead['phone'],
                             'name': lead.get('name', 'Unknown'),
-                            'time': time.strftime("%Y-%m-%d %H:%:M:%S"),
+                            'time': time.strftime("%Y-%m-%d %H:%M:%S"),
                             'status': 'Initiated',
                             'call_id': call_id,
                             'pitch_used': selected_pitch
