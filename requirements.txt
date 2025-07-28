@@ -1,7 +1,7 @@
-streamlit==1.37.0
-pandas==2.2.2
-requests==2.32.3
-beautifulsoup4==4.12.3
-openai==1.35.10
-python-dotenv==1.0.1
-matplotlib==3.9.1
+streamlit
+pandas
+requests
+python-dotenv
+matplotlib
+beautifulsoup4
+openai
