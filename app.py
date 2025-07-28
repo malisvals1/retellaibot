@@ -257,7 +257,7 @@ if st.button("Generate Test Leads"):
     if st.session_state.openai_api_key and st.session_state.niche:
         try:
             client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-            prompt = f"Generate {test_lead_count} fake sample leads for niche: {st.session_state.niche}. Output JSON array of objects: [{'phone': 'E.164 format', 'name': 'str', 'email': 'str', 'company': 'str', 'info': 'str', 'score': int(1-10)}]"
+            prompt = f"Generate {test_lead_count} fake sample leads for niche: {st.session_state.niche}. Output as JSON: {{ 'leads': [array of objects with keys phone (E.164 format string), name (string), email (string), company (string), info (string), score (integer from 1 to 10)] }}"
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "system", "content": prompt}],
@@ -303,7 +303,7 @@ if st.checkbox("Enable Background Test Lead Generation"):
             if st.session_state.openai_api_key:
                 try:
                     client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-                    prompt = f"Generate {count} fake sample leads for niche: {niche}. Output JSON array of objects: [{'phone': 'E.164 format', 'name': 'str', 'email': 'str', 'company': 'str', 'info': 'str', 'score': int(1-10)}]"
+                    prompt = f"Generate {count} fake sample leads for niche: {niche}. Output as JSON: {{ 'leads': [array of objects with keys phone (E.164 format string), name (string), email (string), company (string), info (string), score (integer from 1 to 10)] }}"
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[{"role": "system", "content": prompt}],
