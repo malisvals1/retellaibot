@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.json  # If you don't want leads/call_logs committed
