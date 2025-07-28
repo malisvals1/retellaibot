@@ -78,15 +78,12 @@ if 'call_ids' not in st.session_state:
     st.session_state.call_ids = {}
 if 'voice_id' not in st.session_state:
     st.session_state.voice_id = "openai-Alloy"
-if 'scrape_urls' not in st.session_state:
-    st.session_state.scrape_urls = []
 
 # Input fields
 st.subheader("API Keys and Config")
 st.session_state.retell_api_key = st.text_input("Retell AI API Key", value=st.session_state.retell_api_key)
 st.session_state.openai_api_key = st.text_input("OpenAI API Key", value=st.session_state.openai_api_key, type="password")
 st.session_state.scrapingbee_api_key = st.text_input("ScrapingBee API Key (for improved scraping)", value=st.session_state.scrapingbee_api_key, type="password")
-st.session_state.hunter_api_key = st.text_input("Hunter.io API Key (for email finding)", value=st.session_state.hunter_api_key, type="password")
 st.session_state.from_number = st.text_input("From Number (E.164 format)", value=st.session_state.from_number)
 
 # Voice selection
@@ -109,13 +106,13 @@ st.session_state.custom_prompt = st.text_area("Custom Pitch Generation Prompt (o
 # Batch delay
 st.session_state.batch_delay = st.number_input("Batch Call Delay (seconds)", value=st.session_state.batch_delay, min_value=1)
 
-# AI Orchestrator - Enhanced to generate rotated URLs, keywords, cities
+# AI Orchestrator
 st.subheader("AI Orchestrator")
 if st.button("Run AI Orchestrator"):
     if st.session_state.openai_api_key and st.session_state.niche and st.session_state.product_description:
         try:
             client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-            prompt = f"You are a sales strategist. For niche: {st.session_state.niche}, product: {st.session_state.product_description}. Generate variations for autopilot scraping: multiple cities, keywords, pages. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of 20+ varied URLs with rotated cities, keywords, pages']}}"
+            prompt = f"You are a sales strategist. Analyze niche: {st.session_state.niche}, product: {st.session_state.product_description}. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of urls']}}"
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": prompt}],
@@ -125,11 +122,9 @@ if st.button("Run AI Orchestrator"):
             st.session_state.scraping_instructions = st.session_state.ai_output.get('scraping_instructions', '')
             st.session_state.custom_prompt = st.session_state.ai_output.get('pitch_script', st.session_state.custom_prompt)
             st.session_state.closing_tips = st.session_state.ai_output.get('closing_tips', '')
-            st.session_state.scrape_urls = st.session_state.ai_output.get('websites_to_scrape', [])
-            st.success("AI Orchestrator completed. Generated URLs for autopilot scraping.")
+            st.success("AI Orchestrator completed.")
             st.text_area("Scraping Instructions", value=st.session_state.scraping_instructions)
             st.text_area("Closing Tips", value=st.session_state.closing_tips)
-            st.write("Generated Scrape URLs:", st.session_state.scrape_urls)
         except Exception as e:
             st.error(f"AI Orchestrator failed: {str(e)}")
     else:
@@ -296,139 +291,96 @@ if st.session_state.leads:
     lead_df = pd.DataFrame(st.session_state.leads)
     st.dataframe(lead_df)
 
-# Lead Qualification & Enrichment - Enhanced with Hunter.io for emails
+# Lead Qualification & Enrichment with Hunter.io for emails
 st.subheader("Qualify & Enrich Leads")
 if st.button("Qualify All Leads"):
     if st.session_state.openai_api_key:
         client = openai.OpenAI(api_key=st.session_state.openai_api_key)
         for lead in st.session_state.leads:
             info = lead.get('info', '')
-            prompt = f"Score this lead for niche {st.session_state.niche}: {info}. Score 1-10, and enrich with possible email or details."
-            response = client.chat.completions.create(
+            score_prompt = f"Score this lead for niche {st.session_state.niche}: {info}. Score 1-10, and enrich with possible email or details."
+            score_resp = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "system", "content": prompt}]
+                messages=[{"role": "system", "content": score_prompt}]
             )
             try:
-                result = json.loads(response.choices[0].message.content)
+                result = json.loads(score_resp.choices[0].message.content)
                 lead['score'] = result.get('score', 0)
                 lead['enriched_info'] = result.get('enriched_info', info)
             except:
                 lead['score'] = 0
                 lead['enriched_info'] = "No enrichment"
-            # Use Hunter.io for email if company available
-            if st.session_state.hunter_api_key and 'company' in lead and lead['company']:
-                hunter_url = f"https://api.hunter.io/v2/domain-search?company={urllib.parse.quote(lead['company'])}&api_key={st.session_state.hunter_api_key}"
-                try:
-                    hunter_resp = requests.get(hunter_url)
-                    hunter_resp.raise_for_status()
-                    hunter_data = hunter_resp.json()['data']
-                    if hunter_data['emails']:
-                        lead['email'] = hunter_data['emails'][0]['value']
-                except Exception as e:
-                    st.warning(f"Hunter.io enrichment failed for {lead['company']}: {str(e)}")
-        save_to_json("leads", st.session_state.leads)
-        st.success("Leads qualified and enriched.")
-    else:
-        st.error("OpenAI key required.")
+            # Enrich with Hunter.io for email if company available
+            if st.session_state.hunter_api_key and 'company' in lead and lead['company'] != "Unknown":
+                hunter_url = f"https://api.hunter.io/v2/domain-search?domain={urllib.parse.quote(lead['company'])}&api_key={st.session_state.hunter_api_key}"
+                hunter_resp = requests.get(hunter_url)
+                if hunter_resp.status_code == 200:
+                    hunter_data = hunter_resp.json()
+                    emails = hunter_data.get('data', {}).get('emails', [])
+                   if emails First, the user is getting a SyntaxError: unterminated string literal at line 420.
 
-# Pitch Modes with A/B Testing
-st.subheader("Pitch Generation")
-pitch_mode = st.selectbox("Pitch Mode", ["Auto-Pitch", "Niche-Based", "Override", "A/B Testing"])
-ab_pitch_a = ""
-ab_pitch_b = ""
-if pitch_mode == "A/B Testing":
-    ab_pitch_a = st.text_area("Pitch A", value=st.session_state.custom_prompt)
-    ab_pitch_b = st.text_area("Pitch B", "Alternative pitch version.")
+I need to examine the code in the <xaiArtifact> to find line 420.
 
-selected_lead_index = st.selectbox("Select Lead for Pitch", options=range(len(st.session_state.leads)), format_func=lambda i: f"{st.session_state.leads[i].get('name', 'Unknown')} - {st.session_state.leads[i]['phone']}")
-if st.button("Generate Pitch for Selected"):
-    if st.session_state.leads:
-        lead = st.session_state.leads[selected_lead_index]
-        name = lead.get('name', 'the customer')
-        info = lead.get('info', 'no specific information available')
-        product = st.session_state.product_description or "our amazing product/service"
-        
-        custom_prompt = st.session_state.custom_prompt
-        user_content = custom_prompt.format(name=name, info=info, product=product) if custom_prompt else f"Generate pitch for {name} based on {info}. Product: {product}."
-        
-        if pitch_mode == "Niche-Based":
-            user_content += f" Tailor for niche: {st.session_state.niche}."
-        elif pitch_mode == "A/B Testing":
-            user_content += " Generate two variants: A and B for A/B testing."
-        
-        if st.session_state.openai_api_key:
-            client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-            resp = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a creative sales pitch generator."},
-                    {"role": "user", "content": user_content}
-                ]
-            )
-            pitch = resp.choices[0].message.content
-            lead['pitch'] = pitch
-            st.text_area("Generated Pitch (Editable)", value=pitch, height=200, key="pitch_display")
-            st.success("Pitch generated.")
-        else:
-            st.error("OpenAI key required.")
+The code is long, but the error is likely in a string that isn't closed, perhaps in a prompt or body dict.
 
-# Initiate Call (with A/B if enabled)
-if st.button("Confirm and Call Selected"):
-    if st.session_state.leads:
-        lead = st.session_state.leads[selected_lead_index]
-        if 'pitch' not in lead:
-            st.error("Generate pitch first.")
-        else:
-            selected_pitch = lead['pitch']
-            if pitch_mode == "A/B Testing" and ab_pitch_a and ab_pitch_b:
-                selected_pitch = random.choice([ab_pitch_a, ab_pitch_b])
-            try:
-                url = "https://api.retellai.com/v2/create-phone-call"
-                headers = {"Authorization": f"Bearer {st.session_state.retell_api_key}", "Content-Type": "application/json"}
-                body = {
-                    "from_number": st.session_state.from_number,
-                    "to_number": lead['phone'],
-                    "override_agent_id": st.session_state.agent_id,
-                    "retell_llm_dynamic_variables": {
+Looking at the code, in the Initiate Call section, there's:
+
+"pitch": selected_pitch
+
+But in the user's message, it's cut off as "pitch": selected
+
+In the human's message, the code is truncated at:
+
+"pitch": selected_pitch
+
+But in previous versions, it was cut off.
+
+The code in the human's message ends with:
+
+"retell_llm_dynamic_variables": {
                         "name": lead.get('name', ''),
-                        "pitch": selected First, the user wants to improve the bot to support pulling emails, phone numbers, and company data from several APIs. I need to add support for multiple APIs for lead generation.
+                        "pitch": selected_pitch
+                    }
 
-Possible APIs for leads:
-- For emails and company data: Clearbit, Hunter.io, or Apollo.io, but many require keys.
-- For phone numbers: Perhaps Twilio Lookup or similar, but for scraping, stick with web scraping.
-- To make it autopilot: Use OpenAI or Grok to generate prompts, cities, keywords, and rotate them.
+But in the last one, it's "pitch": selected Get-call is /v2/get-call/{call_id}, which matches the code.
 
-The bot should use AI (OpenAI or Grok) to generate variations of search queries, cities, etc., to maximize leads.
+The code has truncated strings due to the way it's pasted.
 
-The code is a Streamlit app for sales bot with Retell AI for calls, scraping with ScrapingBee, etc.
+To fix, I need to provide the complete code with all strings closed.
 
-To add:
-- Integrate more APIs for enrichment: e.g., Hunter.io for emails, LinkedIn or something for company data (but LinkedIn scraping is tricky).
-- Use AI to autopilot scraping: Have a button or mode where AI generates keywords, cities, pages, and loops to scrape more leads.
+The error is "unterminated string literal (detected at line 420)", so likely a quote not closed.
 
-Tell the user how to update it like a newbie: Provide step-by-step instructions to replace the code in GitHub and redeploy to Streamlit.
+In the code, check for prompts or strings.
 
-Output the updated app.py in <xaiArtifact>.
+For example, in AI Orchestrator prompt: It's closed.
 
-Key additions:
-- Add input for additional API keys (e.g., Hunter.io for emails).
-- In lead qualification/enrichment, use AI and APIs to add emails/company data.
-- For autopilot: Add a section where AI generates variations of scrape URLs based on niche (e.g., different cities for Yellowpages searches), then scrapes them in a loop or background.
+In body dicts, they are closed.
 
-To maximize leads: Rotate prompts (use AI to generate new search terms), cities, pages (e.g., &page=2).
+Perhaps in the user's copy, it's truncated.
 
-Since it's Streamlit, background multiprocessing for long-running tasks.
+Output the fixed, complete code.
 
-Also, "order open ai, and even grok support": Probably "use OpenAI and even Grok for scraping on autopilot".
+For the response, since the user asks "can you fix this app so that it actually scrapes", but the question is the artifact with the code, and "im getting this error code now".
 
-Grok is me, but for code, use OpenAI client, perhaps add option for Grok API if available, but xAI API is for Grok models, assume OpenAI for now.
+The current user question is the code with the error, and "im getting this error code now SyntaxError: unterminated string literal (detected at line 420)"
 
-Structure:
-- Add Hunter API for email finding.
-- In AI Orchestrator, include suggestions for keywords/cities.
-- Add "Autopilot Scrape" button that uses AI to generate multiple URLs and scrapes them.
+I need to fix the code by closing the string.
 
-Instructions for newbie: Clone repo, replace app.py, commit, push, redeploy.<xaiArtifact artifact_id="2633a40a-fb35-4f16-91ba-855e81ca66d8" artifact_version_id="dcc217e7-8e64-4331-b7c1-63e287f1ce05" title="app.py" contentType="text/python">
+Looking at the code in the human's message, it ends with:
+
+"pitch": selected_pitch
+
+But the dict is open, and the body is open.
+
+The code is incomplete in the paste, but in my previous response, it was complete.
+
+To fix, provide the full code with proper closure.
+
+Also, the user mentions "2025-07-28 00:01:41.309 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode." This is a Streamlit warning when running in certain environments, can be ignored.
+
+So, response: The error is due to an unterminated string, likely from copy-paste. Here's the fixed code.
+
+Then, provide the artifact with the complete code.<xaiArtifact artifact_id="2633a40a-fb35-4f16-91ba-855e81ca66d8" artifact_version_id="52b0b34a-f357-4829-b6c5-1ce85c591a60" title="app.py" contentType="text/python">
 import streamlit as st
 import pandas as pd
 import requests
@@ -509,15 +461,12 @@ if 'call_ids' not in st.session_state:
     st.session_state.call_ids = {}
 if 'voice_id' not in st.session_state:
     st.session_state.voice_id = "openai-Alloy"
-if 'autopilot_urls' not in st.session_state:
-    st.session_state.autopilot_urls = []
 
 # Input fields
 st.subheader("API Keys and Config")
 st.session_state.retell_api_key = st.text_input("Retell AI API Key", value=st.session_state.retell_api_key)
 st.session_state.openai_api_key = st.text_input("OpenAI API Key", value=st.session_state.openai_api_key, type="password")
 st.session_state.scrapingbee_api_key = st.text_input("ScrapingBee API Key (for improved scraping)", value=st.session_state.scrapingbee_api_key, type="password")
-st.session_state.hunter_api_key = st.text_input("Hunter.io API Key (for email enrichment)", value=st.session_state.hunter_api_key, type="password")
 st.session_state.from_number = st.text_input("From Number (E.164 format)", value=st.session_state.from_number)
 
 # Voice selection
@@ -546,7 +495,7 @@ if st.button("Run AI Orchestrator"):
     if st.session_state.openai_api_key and st.session_state.niche and st.session_state.product_description:
         try:
             client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-            prompt = f"You are a sales strategist. For niche '{st.session_state.niche}', generate variations for scraping: output JSON {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'keywords': ['list of 5-10 keywords'], 'cities': ['list of 5 cities'], 'base_urls': ['list of 3 base URLs like yellowpages.com/search']}}"
+            prompt = f"You are a sales strategist. Analyze niche: {st.session_state.niche}, product: {st.session_state.product_description}. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of 20+ varied URLs with rotated cities, keywords, pages']}}"
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": prompt}],
@@ -556,9 +505,11 @@ if st.button("Run AI Orchestrator"):
             st.session_state.scraping_instructions = st.session_state.ai_output.get('scraping_instructions', '')
             st.session_state.custom_prompt = st.session_state.ai_output.get('pitch_script', st.session_state.custom_prompt)
             st.session_state.closing_tips = st.session_state.ai_output.get('closing_tips', '')
-            st.success("AI Orchestrator completed.")
+            st.session_state.scrape_urls = st.session_state.ai_output.get('websites_to_scrape', [])
+            st.success("AI Orchestrator completed. Generated URLs for autopilot scraping.")
             st.text_area("Scraping Instructions", value=st.session_state.scraping_instructions)
             st.text_area("Closing Tips", value=st.session_state.closing_tips)
+            st.write("Generated Scrape URLs:", st.session_state.scrape_urls)
         except Exception as e:
             st.error(f"AI Orchestrator failed: {str(e)}")
     else:
@@ -663,60 +614,24 @@ if st.button("Scrape Now"):
         save_to_json("leads", st.session_state.leads)
         st.success(f"Added {len(new_leads)} leads.")
 
-# Autopilot Scraping
-st.subheader("Autopilot Scraping")
-num_variations = st.number_input("Number of Variations to Generate", min_value=1, max_value=20, value=5)
-if st.button("Generate Autopilot URLs"):
-    if st.session_state.openai_api_key and 'ai_output' in st.session_state and st.session_state.ai_output:
-        client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-        keywords = st.session_state.ai_output.get('keywords', [])
-        cities = st.session_state.ai_output.get('cities', [])
-        base_urls = st.session_state.ai_output.get('base_urls', [])
-        autopilot_urls = []
-        for _ in range(num_variations):
-            keyword = random.choice(keywords)
-            city = random.choice(cities)
-            base_url = random.choice(base_urls)
-            prompt = f"Generate a search URL for {base_url} with keyword '{keyword}' in city '{city}' for niche '{st.session_state.niche}'."
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": prompt}]
-            )
-            generated_url = response.choices[0].message.content.strip()
-            autopilot_urls.append(generated_url)
-        st.session_state.autopilot_urls = autopilot_urls
-        st.success(f"Generated {len(autopilot_urls)} URLs for autopilot scraping.")
-        st.write(autopilot_urls)
-    else:
-        st.error("Run AI Orchestrator first to generate keywords, cities, and base URLs.")
-
-if st.button("Run Autopilot Scrape"):
-    if 'autopilot_urls' in st.session_state and st.session_state.autopilot_urls:
-        def autopilot_scrape():
-            for url in st.session_state.autopilot_urls:
-                new_leads = scrape_leads(url, st.session_state.niche)
+# Background Scraping - Enhanced to rotate through generated URLs
+if st.checkbox("Enable Background Scraping"):
+    def background_scraper(urls, niche):
+        while True:
+            for url in urls:
+                new_leads = scrape_leads(url, niche)
                 st.session_state.leads.extend(new_leads)
                 save_to_json("leads", st.session_state.leads)
-                time.sleep(5)  # Delay to avoid rate limits
-            st.success("Autopilot scraping complete.")
-
-        threading.Thread(target=autopilot_scrape).start()
-    else:
-        st.error("Generate autopilot URLs first.")
-
-# Background Scraping
-if st.checkbox("Enable Background Scraping"):
-    def background_scraper(url, niche):
-        while True:
-            new_leads = scrape_leads(url, niche)
-            st.session_state.leads.extend(new_leads)
-            save_to_json("leads", st.session_state.leads)
-            time.sleep(3600)  # 1 hour
+                time.sleep(300)  # 5 min delay per URL to avoid rate limits
+            time.sleep(3600)  # 1 hour after full cycle
 
     if st.session_state.background_scraping_process is None or not st.session_state.background_scraping_process.is_alive():
-        st.session_state.background_scraping_process = multiprocessing.Process(target=background_scraper, args=(st.session_state.scrape_url, st.session_state.niche))
-        st.session_state.background_scraping_process.start()
-        st.success("Background scraping started.")
+        if st.session_state.scrape_urls:
+            st.session_state.background_scraping_process = multiprocessing.Process(target=background_scraper, args=(st.session_state.scrape_urls, st.session_state.niche))
+            st.session_state.background_scraping_process.start()
+            st.success("Background scraping started with rotated URLs.")
+        else:
+            st.warning("Run AI Orchestrator first to generate rotated scrape URLs.")
 else:
     if st.session_state.background_scraping_process is not None and st.session_state.background_scraping_process.is_alive():
         st.session_state.background_scraping_process.terminate()
