@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup  # For scraping
 import multiprocessing  # For background scraping
 import openai  # For OpenAI client
 import random  # For A/B testing variants
+import urllib.parse  # For URL encoding
 
 # Load environment variables if available
 load_dotenv()
@@ -41,6 +42,8 @@ if 'openai_api_key' not in st.session_state:
     st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 if 'scrapingbee_api_key' not in st.session_state:
     st.session_state.scrapingbee_api_key = os.getenv("SCRAPINGBEE_API_KEY", "")
+if 'hunter_api_key' not in st.session_state:
+    st.session_state.hunter_api_key = os.getenv("HUNTER_API_KEY", "")
 if 'from_number' not in st.session_state:
     st.session_state.from_number = os.getenv("FROM_NUMBER", "")
 if 'llm_id' not in st.session_state:
@@ -75,12 +78,15 @@ if 'call_ids' not in st.session_state:
     st.session_state.call_ids = {}
 if 'voice_id' not in st.session_state:
     st.session_state.voice_id = "openai-Alloy"
+if 'scrape_urls' not in st.session_state:
+    st.session_state.scrape_urls = []
 
 # Input fields
 st.subheader("API Keys and Config")
 st.session_state.retell_api_key = st.text_input("Retell AI API Key", value=st.session_state.retell_api_key)
 st.session_state.openai_api_key = st.text_input("OpenAI API Key", value=st.session_state.openai_api_key, type="password")
 st.session_state.scrapingbee_api_key = st.text_input("ScrapingBee API Key (for improved scraping)", value=st.session_state.scrapingbee_api_key, type="password")
+st.session_state.hunter_api_key = st.text_input("Hunter.io API Key (for email finding)", value=st.session_state.hunter_api_key, type="password")
 st.session_state.from_number = st.text_input("From Number (E.164 format)", value=st.session_state.from_number)
 
 # Voice selection
@@ -103,13 +109,13 @@ st.session_state.custom_prompt = st.text_area("Custom Pitch Generation Prompt (o
 # Batch delay
 st.session_state.batch_delay = st.number_input("Batch Call Delay (seconds)", value=st.session_state.batch_delay, min_value=1)
 
-# AI Orchestrator
+# AI Orchestrator - Enhanced to generate rotated URLs, keywords, cities
 st.subheader("AI Orchestrator")
 if st.button("Run AI Orchestrator"):
     if st.session_state.openai_api_key and st.session_state.niche and st.session_state.product_description:
         try:
             client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-            prompt = f"You are a sales strategist. Analyze niche: {st.session_state.niche}, product: {st.session_state.product_description}. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of urls']}}"
+            prompt = f"You are a sales strategist. For niche: {st.session_state.niche}, product: {st.session_state.product_description}. Generate variations for autopilot scraping: multiple cities, keywords, pages. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of 20+ varied URLs with rotated cities, keywords, pages']}}"
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": prompt}],
@@ -119,9 +125,11 @@ if st.button("Run AI Orchestrator"):
             st.session_state.scraping_instructions = st.session_state.ai_output.get('scraping_instructions', '')
             st.session_state.custom_prompt = st.session_state.ai_output.get('pitch_script', st.session_state.custom_prompt)
             st.session_state.closing_tips = st.session_state.ai_output.get('closing_tips', '')
-            st.success("AI Orchestrator completed.")
+            st.session_state.scrape_urls = st.session_state.ai_output.get('websites_to_scrape', [])
+            st.success("AI Orchestrator completed. Generated URLs for autopilot scraping.")
             st.text_area("Scraping Instructions", value=st.session_state.scraping_instructions)
             st.text_area("Closing Tips", value=st.session_state.closing_tips)
+            st.write("Generated Scrape URLs:", st.session_state.scrape_urls)
         except Exception as e:
             st.error(f"AI Orchestrator failed: {str(e)}")
     else:
@@ -175,7 +183,8 @@ st.text(st.session_state.status)
 def scrape_leads(url, niche):
     try:
         if st.session_state.scrapingbee_api_key:
-            scrapingbee_url = f"https://app.scrapingbee.com/api/v1/?api_key={st.session_state.scrapingbee_api_key}&url={url}&render_js=true"
+            encoded_url = urllib.parse.quote(url)
+            scrapingbee_url = f"https://app.scrapingbee.com/api/v1/?api_key={st.session_state.scrapingbee_api_key}&url={encoded_url}&render_js=true"
             resp = requests.get(scrapingbee_url)
             resp.raise_for_status()
             html = resp.text
@@ -188,19 +197,29 @@ def scrape_leads(url, niche):
         soup = BeautifulSoup(html, 'html.parser')
         phones = []
         names = []
+        emails = []
+        companies = []
         for text in soup.find_all(text=True):
             phone_matches = re.findall(r'(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', text)
             if phone_matches:
                 phones.extend(phone_matches)
+            email_matches = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text)
+            if email_matches:
+                emails.extend(email_matches)
             if re.match(r'^[A-Z][a-z]+\s[A-Z][a-z]+$', text.strip()):
                 names.append(text.strip())
+            company_matches = re.findall(r'[A-Z][a-zA-Z\s&]+ (Inc|LLC|Corp|Co|Ltd)', text.strip())
+            if company_matches:
+                companies.extend(company_matches)
         new_leads = []
         phones = list(set(phones))
         for i, phone in enumerate(phones):
             fixed = ai_reformat_phone(phone)
             if fixed:
                 name = names[i % len(names)] if names else "Unknown"
-                new_leads.append({"phone": fixed, "name": name, "info": niche, "score": random.randint(1, 10)})
+                email = emails[i % len(emails)] if emails else ""
+                company = companies[i % len(companies)] if companies else ""
+                new_leads.append({"phone": fixed, "name": name, "email": email, "company": company, "info": niche, "score": random.randint(1, 10)})
         return new_leads
     except Exception as e:
         st.error(f"Scraping failed: {str(e)}. Ensure ScrapingBee key is valid (if used) and site allows scraping.")
@@ -215,19 +234,24 @@ if st.button("Scrape Now"):
         save_to_json("leads", st.session_state.leads)
         st.success(f"Added {len(new_leads)} leads.")
 
-# Background Scraping
+# Background Scraping - Enhanced to rotate through generated URLs
 if st.checkbox("Enable Background Scraping"):
-    def background_scraper(url, niche):
+    def background_scraper(urls, niche):
         while True:
-            new_leads = scrape_leads(url, niche)
-            st.session_state.leads.extend(new_leads)
-            save_to_json("leads", st.session_state.leads)
-            time.sleep(3600)  # 1 hour
+            for url in urls:
+                new_leads = scrape_leads(url, niche)
+                st.session_state.leads.extend(new_leads)
+                save_to_json("leads", st.session_state.leads)
+                time.sleep(300)  # 5 min delay per URL to avoid rate limits
+            time.sleep(3600)  # 1 hour after full cycle
 
     if st.session_state.background_scraping_process is None or not st.session_state.background_scraping_process.is_alive():
-        st.session_state.background_scraping_process = multiprocessing.Process(target=background_scraper, args=(st.session_state.scrape_url, st.session_state.niche))
-        st.session_state.background_scraping_process.start()
-        st.success("Background scraping started.")
+        if st.session_state.scrape_urls:
+            st.session_state.background_scraping_process = multiprocessing.Process(target=background_scraper, args=(st.session_state.scrape_urls, st.session_state.niche))
+            st.session_state.background_scraping_process.start()
+            st.success("Background scraping started with rotated URLs.")
+        else:
+            st.warning("Run AI Orchestrator first to generate rotated scrape URLs.")
 else:
     if st.session_state.background_scraping_process is not None and st.session_state.background_scraping_process.is_alive():
         st.session_state.background_scraping_process.terminate()
@@ -272,7 +296,7 @@ if st.session_state.leads:
     lead_df = pd.DataFrame(st.session_state.leads)
     st.dataframe(lead_df)
 
-# Lead Qualification & Enrichment
+# Lead Qualification & Enrichment - Enhanced with Hunter.io for emails
 st.subheader("Qualify & Enrich Leads")
 if st.button("Qualify All Leads"):
     if st.session_state.openai_api_key:
@@ -291,6 +315,17 @@ if st.button("Qualify All Leads"):
             except:
                 lead['score'] = 0
                 lead['enriched_info'] = "No enrichment"
+            # Use Hunter.io for email if company available
+            if st.session_state.hunter_api_key and 'company' in lead and lead['company']:
+                hunter_url = f"https://api.hunter.io/v2/domain-search?company={urllib.parse.quote(lead['company'])}&api_key={st.session_state.hunter_api_key}"
+                try:
+                    hunter_resp = requests.get(hunter_url)
+                    hunter_resp.raise_for_status()
+                    hunter_data = hunter_resp.json()['data']
+                    if hunter_data['emails']:
+                        lead['email'] = hunter_data['emails'][0]['value']
+                except Exception as e:
+                    st.warning(f"Hunter.io enrichment failed for {lead['company']}: {str(e)}")
         save_to_json("leads", st.session_state.leads)
         st.success("Leads qualified and enriched.")
     else:
@@ -356,23 +391,44 @@ if st.button("Confirm and Call Selected"):
                     "override_agent_id": st.session_state.agent_id,
                     "retell_llm_dynamic_variables": {
                         "name": lead.get('name', ''),
-                        "pitch": selected Get-call is /v2/get-call/{call_id}, which matches the code.
+                        "pitch": selected First, the user wants to improve the bot to support pulling emails, phone numbers, and company data from several APIs. I need to add support for multiple APIs for lead generation.
 
-Code is correct.
+Possible APIs for leads:
+- For emails and company data: Clearbit, Hunter.io, or Apollo.io, but many require keys.
+- For phone numbers: Perhaps Twilio Lookup or similar, but for scraping, stick with web scraping.
+- To make it autopilot: Use OpenAI or Grok to generate prompts, cities, keywords, and rotate them.
 
-For scraping fix: Since user says "didnt scrape at all", likely no key or site issue (e.g., Yelp blocks direct, but ScrapingBee handles it).
+The bot should use AI (OpenAI or Grok) to generate variations of search queries, cities, etc., to maximize leads.
 
-To enhance: Keep ScrapingBee, add render_js=true for JS sites like Yelp.
+The code is a Streamlit app for sales bot with Retell AI for calls, scraping with ScrapingBee, etc.
 
-Yelp often requires JS or anti-bot bypass, ScrapingBee with render_js=true can help, but costs more credits.
+To add:
+- Integrate more APIs for enrichment: e.g., Hunter.io for emails, LinkedIn or something for company data (but LinkedIn scraping is tricky).
+- Use AI to autopilot scraping: Have a button or mode where AI generates keywords, cities, pages, and loops to scrape more leads.
 
-Update code: Set render_js=true for better scraping.
+Tell the user how to update it like a newbie: Provide step-by-step instructions to replace the code in GitHub and redeploy to Streamlit.
 
-Add error handling.
+Output the updated app.py in <xaiArtifact>.
 
-Also, for background, same.
+Key additions:
+- Add input for additional API keys (e.g., Hunter.io for emails).
+- In lead qualification/enrichment, use AI and APIs to add emails/company data.
+- For autopilot: Add a section where AI generates variations of scrape URLs based on niche (e.g., different cities for Yellowpages searches), then scrapes them in a loop or background.
 
-Output the updated app.py with render_js=true in ScrapingBee URL.<xaiArtifact artifact_id="99295e80-1bec-43d2-bc5c-3e881cffb72d" artifact_version_id="d9eab8ba-49a0-45ea-819f-06eb2b4260b9" title="app.py" contentType="text/python">
+To maximize leads: Rotate prompts (use AI to generate new search terms), cities, pages (e.g., &page=2).
+
+Since it's Streamlit, background multiprocessing for long-running tasks.
+
+Also, "order open ai, and even grok support": Probably "use OpenAI and even Grok for scraping on autopilot".
+
+Grok is me, but for code, use OpenAI client, perhaps add option for Grok API if available, but xAI API is for Grok models, assume OpenAI for now.
+
+Structure:
+- Add Hunter API for email finding.
+- In AI Orchestrator, include suggestions for keywords/cities.
+- Add "Autopilot Scrape" button that uses AI to generate multiple URLs and scrapes them.
+
+Instructions for newbie: Clone repo, replace app.py, commit, push, redeploy.<xaiArtifact artifact_id="2633a40a-fb35-4f16-91ba-855e81ca66d8" artifact_version_id="dcc217e7-8e64-4331-b7c1-63e287f1ce05" title="app.py" contentType="text/python">
 import streamlit as st
 import pandas as pd
 import requests
@@ -387,6 +443,7 @@ from bs4 import BeautifulSoup  # For scraping
 import multiprocessing  # For background scraping
 import openai  # For OpenAI client
 import random  # For A/B testing variants
+import urllib.parse  # For URL encoding
 
 # Load environment variables if available
 load_dotenv()
@@ -416,6 +473,8 @@ if 'openai_api_key' not in st.session_state:
     st.session_state.openai_api_key = os.getenv("OPENAI_API_KEY", "")
 if 'scrapingbee_api_key' not in st.session_state:
     st.session_state.scrapingbee_api_key = os.getenv("SCRAPINGBEE_API_KEY", "")
+if 'hunter_api_key' not in st.session_state:
+    st.session_state.hunter_api_key = os.getenv("HUNTER_API_KEY", "")
 if 'from_number' not in st.session_state:
     st.session_state.from_number = os.getenv("FROM_NUMBER", "")
 if 'llm_id' not in st.session_state:
@@ -450,12 +509,15 @@ if 'call_ids' not in st.session_state:
     st.session_state.call_ids = {}
 if 'voice_id' not in st.session_state:
     st.session_state.voice_id = "openai-Alloy"
+if 'autopilot_urls' not in st.session_state:
+    st.session_state.autopilot_urls = []
 
 # Input fields
 st.subheader("API Keys and Config")
 st.session_state.retell_api_key = st.text_input("Retell AI API Key", value=st.session_state.retell_api_key)
 st.session_state.openai_api_key = st.text_input("OpenAI API Key", value=st.session_state.openai_api_key, type="password")
 st.session_state.scrapingbee_api_key = st.text_input("ScrapingBee API Key (for improved scraping)", value=st.session_state.scrapingbee_api_key, type="password")
+st.session_state.hunter_api_key = st.text_input("Hunter.io API Key (for email enrichment)", value=st.session_state.hunter_api_key, type="password")
 st.session_state.from_number = st.text_input("From Number (E.164 format)", value=st.session_state.from_number)
 
 # Voice selection
@@ -484,7 +546,7 @@ if st.button("Run AI Orchestrator"):
     if st.session_state.openai_api_key and st.session_state.niche and st.session_state.product_description:
         try:
             client = openai.OpenAI(api_key=st.session_state.openai_api_key)
-            prompt = f"You are a sales strategist. Analyze niche: {st.session_state.niche}, product: {st.session_state.product_description}. Output JSON: {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'websites_to_scrape': ['list of urls']}}"
+            prompt = f"You are a sales strategist. For niche '{st.session_state.niche}', generate variations for scraping: output JSON {{'scraping_instructions': 'str', 'pitch_script': 'str', 'closing_tips': 'str', 'keywords': ['list of 5-10 keywords'], 'cities': ['list of 5 cities'], 'base_urls': ['list of 3 base URLs like yellowpages.com/search']}}"
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": prompt}],
@@ -546,15 +608,17 @@ if st.button("Setup Agent"):
 
 st.text(st.session_state.status)
 
-# Scrape Leads (enhanced with Yelp example, using ScrapingBee for better success)
+# Scrape Leads (enhanced with Yelp example, using ScrapingBee for better success, fallback to direct if no key)
 def scrape_leads(url, niche):
     try:
         if st.session_state.scrapingbee_api_key:
-            scrapingbee_url = f"https://app.scrapingbee.com/api/v1/?api_key={st.session_state.scrapingbee_api_key}&url={url}&render_js=true"
+            encoded_url = urllib.parse.quote(url)
+            scrapingbee_url = f"https://app.scrapingbee.com/api/v1/?api_key={st.session_state.scrapingbee_api_key}&url={encoded_url}&render_js=true"
             resp = requests.get(scrapingbee_url)
             resp.raise_for_status()
             html = resp.text
         else:
+            st.warning("No ScrapingBee key provided; falling back to direct scrape (may fail on JS-heavy sites like Yelp).")
             headers = {"User-Agent": "Mozilla/5.0"}
             resp = requests.get(url, headers=headers)
             resp.raise_for_status()
@@ -562,22 +626,32 @@ def scrape_leads(url, niche):
         soup = BeautifulSoup(html, 'html.parser')
         phones = []
         names = []
+        emails = []
+        companies = []
         for text in soup.find_all(text=True):
             phone_matches = re.findall(r'(\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', text)
             if phone_matches:
                 phones.extend(phone_matches)
+            email_matches = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
+            if email_matches:
+                emails.extend(email_matches)
             if re.match(r'^[A-Z][a-z]+\s[A-Z][a-z]+$', text.strip()):
                 names.append(text.strip())
+        # Simple company name extraction (improve as needed)
+        company_tags = soup.find_all(class_ = re.compile(r'(company|business|name)', re.I))
+        companies = [tag.text.strip() for tag in company_tags if tag.text.strip()]
         new_leads = []
         phones = list(set(phones))
         for i, phone in enumerate(phones):
             fixed = ai_reformat_phone(phone)
             if fixed:
                 name = names[i % len(names)] if names else "Unknown"
-                new_leads.append({"phone": fixed, "name": name, "info": niche, "score": random.randint(1, 10)})
+                email = emails[i % len(emails)] if emails else "Unknown"
+                company = companies[i % len(companies)] if companies else "Unknown"
+                new_leads.append({"phone": fixed, "name": name, "email": email, "company": company, "info": niche, "score": random.randint(1, 10)})
         return new_leads
     except Exception as e:
-        st.error(f"Scraping failed: {str(e)}. Provide ScrapingBee key for better results on blocked sites like Yelp.")
+        st.error(f"Scraping failed: {str(e)}. Ensure ScrapingBee key is valid (if used) and site allows scraping.")
         return []
 
 st.subheader("Scrape Leads")
@@ -588,6 +662,47 @@ if st.button("Scrape Now"):
         st.session_state.leads.extend(new_leads)
         save_to_json("leads", st.session_state.leads)
         st.success(f"Added {len(new_leads)} leads.")
+
+# Autopilot Scraping
+st.subheader("Autopilot Scraping")
+num_variations = st.number_input("Number of Variations to Generate", min_value=1, max_value=20, value=5)
+if st.button("Generate Autopilot URLs"):
+    if st.session_state.openai_api_key and 'ai_output' in st.session_state and st.session_state.ai_output:
+        client = openai.OpenAI(api_key=st.session_state.openai_api_key)
+        keywords = st.session_state.ai_output.get('keywords', [])
+        cities = st.session_state.ai_output.get('cities', [])
+        base_urls = st.session_state.ai_output.get('base_urls', [])
+        autopilot_urls = []
+        for _ in range(num_variations):
+            keyword = random.choice(keywords)
+            city = random.choice(cities)
+            base_url = random.choice(base_urls)
+            prompt = f"Generate a search URL for {base_url} with keyword '{keyword}' in city '{city}' for niche '{st.session_state.niche}'."
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": prompt}]
+            )
+            generated_url = response.choices[0].message.content.strip()
+            autopilot_urls.append(generated_url)
+        st.session_state.autopilot_urls = autopilot_urls
+        st.success(f"Generated {len(autopilot_urls)} URLs for autopilot scraping.")
+        st.write(autopilot_urls)
+    else:
+        st.error("Run AI Orchestrator first to generate keywords, cities, and base URLs.")
+
+if st.button("Run Autopilot Scrape"):
+    if 'autopilot_urls' in st.session_state and st.session_state.autopilot_urls:
+        def autopilot_scrape():
+            for url in st.session_state.autopilot_urls:
+                new_leads = scrape_leads(url, st.session_state.niche)
+                st.session_state.leads.extend(new_leads)
+                save_to_json("leads", st.session_state.leads)
+                time.sleep(5)  # Delay to avoid rate limits
+            st.success("Autopilot scraping complete.")
+
+        threading.Thread(target=autopilot_scrape).start()
+    else:
+        st.error("Generate autopilot URLs first.")
 
 # Background Scraping
 if st.checkbox("Enable Background Scraping"):
@@ -646,25 +761,34 @@ if st.session_state.leads:
     lead_df = pd.DataFrame(st.session_state.leads)
     st.dataframe(lead_df)
 
-# Lead Qualification & Enrichment
+# Lead Qualification & Enrichment with Hunter.io for emails
 st.subheader("Qualify & Enrich Leads")
 if st.button("Qualify All Leads"):
     if st.session_state.openai_api_key:
         client = openai.OpenAI(api_key=st.session_state.openai_api_key)
         for lead in st.session_state.leads:
             info = lead.get('info', '')
-            prompt = f"Score this lead for niche {st.session_state.niche}: {info}. Score 1-10, and enrich with possible email or details."
-            response = client.chat.completions.create(
+            score_prompt = f"Score this lead for niche {st.session_state.niche}: {info}. Score 1-10, and enrich with possible email or details."
+            score_resp = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "system", "content": prompt}]
+                messages=[{"role": "system", "content": score_prompt}]
             )
             try:
-                result = json.loads(response.choices[0].message.content)
+                result = json.loads(score_resp.choices[0].message.content)
                 lead['score'] = result.get('score', 0)
                 lead['enriched_info'] = result.get('enriched_info', info)
             except:
                 lead['score'] = 0
                 lead['enriched_info'] = "No enrichment"
+            # Enrich with Hunter.io for email if company available
+            if st.session_state.hunter_api_key and 'company' in lead and lead['company'] != "Unknown":
+                hunter_url = f"https://api.hunter.io/v2/domain-search?domain={urllib.parse.quote(lead['company'])}&api_key={st.session_state.hunter_api_key}"
+                hunter_resp = requests.get(hunter_url)
+                if hunter_resp.status_code == 200:
+                    hunter_data = hunter_resp.json()
+                    emails = hunter_data.get('data', {}).get('emails', [])
+                   if emails:
+                        lead['email'] = emails[0].get('value', '')
         save_to_json("leads", st.session_state.leads)
         st.success("Leads qualified and enriched.")
     else:
